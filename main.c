@@ -42,15 +42,11 @@
 
 #define BLACK 0x00000000
 #define GREEN 0x0033CC33
-#define LONG_PRESS_TIME 1000000
+#define LONG_PRESS_TIME 2000000
 
 static int freq_list[] = { 41, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 111, 115, 120, 125, 130, 135, 140, 150, 155, 160, 165, 166, 170, 175, 180, 185, 190, 195, 200, 205, 210, 215, 220, 222, 225, 230, 235, 240, 250, 255, 260, 265, 266, 270, 275, 280, 285, 290, 295, 300, 305, 310, 315, 320, 325, 330, 333, 335, 340, 350, 355, 360, 365, 370, 375, 380, 385, 390, 395, 400, 405, 410, 415, 420, 425, 430, 435, 440, 444 };
 #define N_FREQS (sizeof(freq_list) / sizeof(int))
-// static int bright_list[] = {};
-#define N_BRIGHT (sizeof(bright_list)) / sizeof(int))
-
 static uint32_t current_buttons = 0, pressed_buttons = 0;
-static int frame_setup = 0;
 
 int holdButtons(SceCtrlData *pad, uint32_t buttons) {
 	if ((pad->buttons & buttons) == buttons) {
@@ -63,7 +59,7 @@ int holdButtons(SceCtrlData *pad, uint32_t buttons) {
 			pressed_buttons = pad->buttons & ~current_buttons;
 			current_buttons = pad->buttons;
 
-			if ((sceKernelGetProcessTimeWide() - time_start) >= LONG_PRESS_TIME) {
+			if ((sceKernelGetProcessTimeWide() - time_start) > LONG_PRESS_TIME) {
 				return 1;
 			}
 		}
@@ -188,10 +184,8 @@ int blit_thread(SceSize args, void *argp) {
 						break;
 				}
 			}
-			if (!frame_setup) {
-				blit_setup();
-				frame_setup = 1;
-			}
+
+			blit_setup();
 
 			blit_set_color(0x00FFFFFF, 0x0033CC33);
 			blit_stringf(336, 128, "Better  Amphetamin");
@@ -215,9 +209,9 @@ int blit_thread(SceSize args, void *argp) {
 			blit_set_color(0x00FFFFFF, BLACK);
 			blit_stringf(336, 256, "CHARGING ");
 			if (scePowerIsBatteryCharging() == 1) {
-				blit_stringf(496, 256, "     Yes");
+				blit_stringf(496, 256, "YES     ");
 			} else {
-				blit_stringf(496, 256, "      No");
+				blit_stringf(496, 256, "NO      ");
 			}
 		}
 		sceDisplayWaitVblankStart();
