@@ -41,15 +41,18 @@
 #include "blit.h"
 
 #define BLACK 0x00000000
-#define RED 0x0033CC33
+#define GREEN 0x0033CC33
+#define LONG_PRESS_TIME 1000000
+
 static int freq_list[] = { 41, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 111, 115, 120, 125, 130, 135, 140, 150, 155, 160, 165, 166, 170, 175, 180, 185, 190, 195, 200, 205, 210, 215, 220, 222, 225, 230, 235, 240, 250, 255, 260, 265, 266, 270, 275, 280, 285, 290, 295, 300, 305, 310, 315, 320, 325, 330, 333, 335, 340, 350, 355, 360, 365, 370, 375, 380, 385, 390, 395, 400, 405, 410, 415, 420, 425, 430, 435, 440, 444 };
 #define N_FREQS (sizeof(freq_list) / sizeof(int))
-static int bright_list[] = {}
+// static int bright_list[] = {};
 #define N_BRIGHT (sizeof(bright_list)) / sizeof(int))
 
 static uint32_t current_buttons = 0, pressed_buttons = 0;
+static int frame_setup = 0;
 
-int holdButtons(SceCtrlData *pad, uint32_t buttons, uint64_t time) {
+int holdButtons(SceCtrlData *pad, uint32_t buttons) {
 	if ((pad->buttons & buttons) == buttons) {
 		uint64_t time_start = sceKernelGetProcessTimeWide();
 
@@ -60,7 +63,7 @@ int holdButtons(SceCtrlData *pad, uint32_t buttons, uint64_t time) {
 			pressed_buttons = pad->buttons & ~current_buttons;
 			current_buttons = pad->buttons;
 
-			if ((sceKernelGetProcessTimeWide() - time_start) >= time) {
+			if ((sceKernelGetProcessTimeWide() - time_start) >= LONG_PRESS_TIME) {
 				return 1;
 			}
 		}
@@ -75,20 +78,20 @@ int holdButtons(SceCtrlData *pad, uint32_t buttons, uint64_t time) {
  * to always reschedule our threads instead of main one
  */
 volatile int term_stubs = 0;
-int stub_thread(SceSize args, void *argp){
-	for (;;){if (term_stubs) sceKernelExitDeleteThread(0);}	
+int stub_thread(SceSize args, void *argp) {
+	for (;;) {if (term_stubs) sceKernelExitDeleteThread(0);}	
 }
-void pauseMainThread(){
+void pauseMainThread() {
 	sceKernelChangeThreadPriority(0, 0x0);
 	int i;
 	term_stubs = 0;
-	for (i=0;i<2;i++){
+	for (i=0;i<2;i++) {
 		SceUID thid = sceKernelCreateThread("thread", stub_thread, 0x0, 0x40000, 0, 0, NULL);
 		if (thid >= 0)
 			sceKernelStartThread(thid, 0, NULL);
 	}
 }
-void resumeMainThread(){
+void resumeMainThread() {
 	term_stubs = 1;
 	sceKernelChangeThreadPriority(0, 0x40);
 }
@@ -110,14 +113,14 @@ int blit_thread(SceSize args, void *argp) {
 		pressed_buttons = pad.buttons & ~current_buttons;
 		current_buttons = pad.buttons;
 		
-		if (!menu_open && holdButtons(&pad, SCE_CTRL_SELECT, 1 * 1000 * 1000)) {
+		if (!menu_open && holdButtons(&pad, SCE_CTRL_SELECT)) {
 			menu_open = 1;
 			menu_sel = 0;
 			pauseMainThread();			
 		}
 
 		if (menu_open) {
-			if (pressed_buttons & SCE_CTRL_SELECT){
+			if (pressed_buttons & SCE_CTRL_SELECT) {
 				menu_open = 0;
 				resumeMainThread();
 			}
@@ -185,36 +188,37 @@ int blit_thread(SceSize args, void *argp) {
 						break;
 				}
 			}
-
-			blit_setup();
-			blit_set_color(0x00FFFFFF, 0x0033CC33);
-			blit_stringf(336, 128, "Better Amphetamin");
-
-			blit_set_color(0x00FFFFFF, menu_sel == 0 ? RED : BLACK);
-			blit_stringf(336, 160, "CPU CLOCK");
-			blit_stringf(496, 160, "%d MHZ", scePowerGetArmClockFrequency());
-			blit_set_color(0x00FFFFFF, menu_sel == 1 ? RED : BLACK);
-			blit_stringf(336, 176, "BUS CLOCK");
-			blit_stringf(496, 176, "%d MHZ", scePowerGetBusClockFrequency());
-			blit_set_color(0x00FFFFFF, menu_sel == 2 ? RED : BLACK);
-			blit_stringf(336, 192, "GPU CLOCK");
-			blit_stringf(496, 192, "%d MHZ", scePowerGetGpuClockFrequency());
-			
-			blit_set_color(0x00FFFFFF, menu_sel == 2 ? BLACK : BLACK);
-			blit_stringf(336, 224, "BATTERY  ");
-			blit_stringf(496, 224, "%d mAh", scePowerGetBatteryRemainCapacity());
-			if (scePowerIsBatteryCharging() == 1) {
-				blit_set_color(0x00FFFFFF, menu_sel == 2 ? BLACK : BLACK);
-				blit_stringf(336, 240, "CHARGING ");
-				blit_stringf(496, 240, "Yes    ");
-			}else {
-				blit_set_color(0x00FFFFFF, menu_sel == 2 ? BLACK : BLACK);
-				blit_stringf(336, 240, "CHARGING ");
-				blit_stringf(496, 240, "No     ");
+			if (!frame_setup) {
+				blit_setup();
+				frame_setup = 1;
 			}
-			blit_set_color(0x00FFFFFF, menu_sel == 2 ? BLACK : BLACK);
-			blit_stringf(336, 256, "REMAINING");
-			blit_stringf(496, 256, "%d min", scePowerGetBatteryLifeTime());
+
+			blit_set_color(0x00FFFFFF, 0x0033CC33);
+			blit_stringf(336, 128, "Better  Amphetamin");
+
+			blit_set_color(0x00FFFFFF, menu_sel == 0 ? GREEN : BLACK);
+			blit_stringf(336, 160, "CPU CLOCK");
+			blit_stringf(496, 160, "%-4d MHz", scePowerGetArmClockFrequency());
+			blit_set_color(0x00FFFFFF, menu_sel == 1 ? GREEN : BLACK);
+			blit_stringf(336, 176, "BUS CLOCK");
+			blit_stringf(496, 176, "%-4d MHz", scePowerGetBusClockFrequency());
+			blit_set_color(0x00FFFFFF, menu_sel == 2 ? GREEN : BLACK);
+			blit_stringf(336, 192, "GPU CLOCK");
+			blit_stringf(496, 192, "%-4d MHz", scePowerGetGpuClockFrequency());
+			
+			blit_set_color(0x00FFFFFF, BLACK);
+			blit_stringf(336, 224, "BATTERY  ");
+			blit_stringf(496, 224, "%-4d mAh", scePowerGetBatteryRemainCapacity());
+			blit_set_color(0x00FFFFFF, BLACK);
+			blit_stringf(336, 240, "REMAINING");
+			blit_stringf(496, 240, "%-4d min", scePowerGetBatteryLifeTime());
+			blit_set_color(0x00FFFFFF, BLACK);
+			blit_stringf(336, 256, "CHARGING ");
+			if (scePowerIsBatteryCharging() == 1) {
+				blit_stringf(496, 256, "     Yes");
+			} else {
+				blit_stringf(496, 256, "      No");
+			}
 		}
 		sceDisplayWaitVblankStart();
 	}
