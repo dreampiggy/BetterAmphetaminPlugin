@@ -1,0 +1,2 @@
+freq_accurate=0
+show_advanced=0

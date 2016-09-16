@@ -1,7 +1,7 @@
 TARGET  = amphetamin
-OBJS    = main.o blit.o font.o
+OBJS    = main.o blit.o font.o threads.o config.o power.o
 
-LIBS    = -lSceAppMgr_stub -lSceCtrl_stub -lSceDisplay_stub -lSceFios2_stub -lSceKernel_stub -lScePower_stub
+LIBS    = -lSceAppMgr_stub -lSceCtrl_stub -lSceDisplay_stub -lSceFios2_stub -lSceKernel_stub -lScePower_stub -lSceLibc_stub
 
 PREFIX  = arm-vita-eabi
 CC      = $(PREFIX)-gcc

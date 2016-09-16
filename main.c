@@ -20,18 +20,10 @@
 	###################################
 */
 
+#include <psp2/types.h>
 #include <psp2/ctrl.h>
 #include <psp2/display.h>
-#include <psp2/power.h>
-#include <psp2/gxm.h>
-#include <psp2/types.h>
-#include <psp2/moduleinfo.h>
-#include <psp2/io/dirent.h>
-#include <psp2/io/fcntl.h>
-#include <psp2/io/stat.h>
-#include <psp2/kernel/modulemgr.h>
-#include <psp2/kernel/sysmem.h>
-#include <psp2/kernel/processmgr.h>
+#include <psp2/appmgr.h>
 
 #include <stdio.h>
 #include <stdarg.h>
@@ -39,14 +31,25 @@
 #include <string.h>
 
 #include "blit.h"
+#include "threads.h"
+#include "config.h"
+#include "power.h"
 
 #define BLACK 0x00000000
+#define WHITE 0x00FFFFFF
 #define GREEN 0x0033CC33
 #define LONG_PRESS_TIME 2000000
+#define LEFT_LABEL_X 320
+#define RIGHT_LABEL_X 512
+#define FONT_SIZE 16
 
-static int freq_list[] = { 41, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 111, 115, 120, 125, 130, 135, 140, 150, 155, 160, 165, 166, 170, 175, 180, 185, 190, 195, 200, 205, 210, 215, 220, 222, 225, 230, 235, 240, 250, 255, 260, 265, 266, 270, 275, 280, 285, 290, 295, 300, 305, 310, 315, 320, 325, 330, 333, 335, 340, 350, 355, 360, 365, 370, 375, 380, 385, 390, 395, 400, 405, 410, 415, 420, 425, 430, 435, 440, 444 };
+static int freq_list[] = { 111, 166, 222, 266, 333, 366, 444 };
+static int freq_list_acu[] = { 41, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 111, 115, 120, 125, 130, 135, 140, 150, 155, 160, 165, 166, 170, 175, 180, 185, 190, 195, 200, 205, 210, 215, 220, 222, 225, 230, 235, 240, 250, 255, 260, 265, 266, 270, 275, 280, 285, 290, 295, 300, 305, 310, 315, 320, 325, 330, 333, 335, 340, 350, 355, 360, 365, 370, 375, 380, 385, 390, 395, 400, 405, 410, 415, 420, 425, 430, 435, 440, 444 };
 #define N_FREQS (sizeof(freq_list) / sizeof(int))
+#define N_FREQS_ACU (sizeof(freq_list_acu) / sizeof(int))
 static uint32_t current_buttons = 0, pressed_buttons = 0;
+static struct CONFIG config;
+static char titleid[16] = "AMPHTAMIN";
 
 int holdButtons(SceCtrlData *pad, uint32_t buttons) {
 	if ((pad->buttons & buttons) == buttons) {
@@ -68,35 +71,11 @@ int holdButtons(SceCtrlData *pad, uint32_t buttons) {
 	return 0;
 }
 
-/*
- * Tricky way to freeze main thread, we set our plugin priority to 0 (max)
- * and we start two threads with 0 priority in order to get VITA scheduler
- * to always reschedule our threads instead of main one
- */
-volatile int term_stubs = 0;
-int stub_thread(SceSize args, void *argp) {
-	for (;;) {if (term_stubs) sceKernelExitDeleteThread(0);}	
-}
-void pauseMainThread() {
-	sceKernelChangeThreadPriority(0, 0x0);
-	int i;
-	term_stubs = 0;
-	for (i=0;i<2;i++) {
-		SceUID thid = sceKernelCreateThread("thread", stub_thread, 0x0, 0x40000, 0, 0, NULL);
-		if (thid >= 0)
-			sceKernelStartThread(thid, 0, NULL);
-	}
-}
-void resumeMainThread() {
-	term_stubs = 1;
-	sceKernelChangeThreadPriority(0, 0x40);
-}
-/*
- * END OF PAUSE/RESUME THREADS TRICK
-*/
-
 int blit_thread(SceSize args, void *argp) {
 	sceKernelDelayThread(5 * 1000 * 1000);
+	sceAppMgrAppParamGetString(0, 12, titleid , 256);
+	sceIoMkdir(DATA_PATH, 0777);
+	loadConfig(&config);
 	
 	int menu_open = 0;
 	int menu_sel = 0;
@@ -127,92 +106,105 @@ int blit_thread(SceSize args, void *argp) {
 			}
 
 			if (pressed_buttons & SCE_CTRL_DOWN) {
-				if (menu_sel < 2)
+				int menu_sel_max = 2;
+				if (config.SHOW_ADVANCED) {
+					menu_sel_max = 3;
+				}
+				if (menu_sel < menu_sel_max)
 					menu_sel++;
 			}
 
 			if (pressed_buttons & SCE_CTRL_LEFT || pressed_buttons & SCE_CTRL_RIGHT) {
 				int freq = 0;
 
-				switch (menu_sel) {
-					case 0:
-						freq = scePowerGetArmClockFrequency();
-						break;
-						
-					case 1:
-						freq = scePowerGetBusClockFrequency();
-						break;
-						
-					case 2:
-						freq = scePowerGetGpuClockFrequency();
-						break;
-				}
+				freq = getClockFrequency(menu_sel);
 
 				if (pressed_buttons & SCE_CTRL_LEFT) {
 					int i;
-					for (i = 0; i < N_FREQS; i++) {
-						if (freq_list[i] == freq) {
-							if (i > 0)
-								freq = freq_list[i - 1];
-							break;
+					if (!config.FREQ_ACCURATE) {
+						for (i = 0; i < N_FREQS; i++) {
+							if (freq_list[i] == freq) {
+								if (i > 0)
+									freq = freq_list[i - 1];
+								break;
+							}
+						}
+					} else {
+						for (i = 0; i < N_FREQS_ACU; i++) {
+							if (freq_list_acu[i] == freq) {
+								if (i > 0)
+									freq = freq_list_acu[i - 1];
+								break;
+							}
 						}
 					}
 				}
 
 				if (pressed_buttons & SCE_CTRL_RIGHT) {
 					int i;
-					for (i = 0; i < N_FREQS; i++) {
-						if (freq_list[i] == freq) {
-							if (i < N_FREQS - 1)
-								freq = freq_list[i + 1];
-							break;
+					if (!config.FREQ_ACCURATE) {
+						for (i = 0; i < N_FREQS; i++) {
+							if (freq_list[i] == freq) {
+								if (i < N_FREQS - 1)
+									freq = freq_list[i + 1];
+								break;
+							}
+						}
+					} else {
+						for (i = 0; i < N_FREQS_ACU; i++) {
+							if (freq_list_acu[i] == freq) {
+								if (i < N_FREQS_ACU - 1)
+									freq = freq_list_acu[i + 1];
+								break;
+							}
 						}
 					}
 				}
 
-				switch (menu_sel) {
-					case 0:
-						scePowerSetArmClockFrequency(freq);
-						break;
-						
-					case 1:
-						scePowerSetBusClockFrequency(freq);
-						break;
-						
-					case 2:
-						scePowerSetGpuClockFrequency(freq);
-						break;
-				}
+				setClockFrequency(menu_sel, freq);
 			}
 
 			blit_setup();
 
-			blit_set_color(0x00FFFFFF, 0x0033CC33);
-			blit_stringf(336, 128, "Better  Amphetamin");
+			blit_set_color(WHITE, GREEN);
+			blit_stringf(LEFT_LABEL_X, 128, "Better Amphetamin 3.2");
 
-			blit_set_color(0x00FFFFFF, menu_sel == 0 ? GREEN : BLACK);
-			blit_stringf(336, 160, "CPU CLOCK");
-			blit_stringf(496, 160, "%-4d MHz", scePowerGetArmClockFrequency());
-			blit_set_color(0x00FFFFFF, menu_sel == 1 ? GREEN : BLACK);
-			blit_stringf(336, 176, "BUS CLOCK");
-			blit_stringf(496, 176, "%-4d MHz", scePowerGetBusClockFrequency());
-			blit_set_color(0x00FFFFFF, menu_sel == 2 ? GREEN : BLACK);
-			blit_stringf(336, 192, "GPU CLOCK");
-			blit_stringf(496, 192, "%-4d MHz", scePowerGetGpuClockFrequency());
-			
-			blit_set_color(0x00FFFFFF, BLACK);
-			blit_stringf(336, 224, "BATTERY  ");
-			blit_stringf(496, 224, "%-4d mAh", scePowerGetBatteryRemainCapacity());
-			blit_set_color(0x00FFFFFF, BLACK);
-			blit_stringf(336, 240, "REMAINING");
-			blit_stringf(496, 240, "%-4d min", scePowerGetBatteryLifeTime());
-			blit_set_color(0x00FFFFFF, BLACK);
-			blit_stringf(336, 256, "CHARGING ");
-			if (scePowerIsBatteryCharging() == 1) {
-				blit_stringf(496, 256, "YES     ");
-			} else {
-				blit_stringf(496, 256, "NO      ");
+			blit_set_color(WHITE, menu_sel == 0 ? GREEN : BLACK);
+			blit_stringf(LEFT_LABEL_X, 160, "CPU CLOCK  ");
+			blit_stringf(RIGHT_LABEL_X, 160, "%-4d  MHz", getClockFrequency(0));
+			blit_set_color(WHITE, menu_sel == 1 ? GREEN : BLACK);
+			blit_stringf(LEFT_LABEL_X, 176, "BUS CLOCK  ");
+			blit_stringf(RIGHT_LABEL_X, 176, "%-4d  MHz", getClockFrequency(1));
+			blit_set_color(WHITE, menu_sel == 2 ? GREEN : BLACK);
+			blit_stringf(LEFT_LABEL_X, 192, "GPU CLOCK  ");
+			blit_stringf(RIGHT_LABEL_X, 192, "%-4d  MHz", getClockFrequency(2));
+			if (config.SHOW_ADVANCED) { // advanced setting for GPU Crossbar
+				blit_set_color(WHITE, menu_sel == 3 ? GREEN : BLACK);
+				blit_stringf(LEFT_LABEL_X, 208, "XBAR CLOCK ");
+				blit_stringf(RIGHT_LABEL_X, 208, "%-4d  MHz", getClockFrequency(3));
 			}
+			
+			blit_set_color(WHITE, BLACK);
+			blit_stringf(LEFT_LABEL_X, 240, "BATTERY CAP");
+			blit_stringf(RIGHT_LABEL_X, 240, "%-4d  mAh", getBatteryRemCapacity());
+			blit_set_color(WHITE, BLACK);
+			blit_stringf(LEFT_LABEL_X, 256, "REMAINING  ");
+			blit_stringf(RIGHT_LABEL_X, 256, "%-4d  min", getBatteryLifeTime());
+			blit_set_color(WHITE, BLACK);
+			blit_stringf(LEFT_LABEL_X, 272, "TEMPERATURE");
+			blit_stringf(RIGHT_LABEL_X, 272, "%-5s Cel", getBatteryTempInCelsius());
+			blit_set_color(WHITE, BLACK);
+			blit_stringf(LEFT_LABEL_X, 288, "CHARGING   ");
+			if (getBatteryStatus()) {
+				blit_stringf(RIGHT_LABEL_X, 288, "YES %5s", getBatteryPercentage());
+			} else {
+				blit_stringf(RIGHT_LABEL_X, 288, "NO  %5s", getBatteryPercentage());
+			}
+
+			blit_set_color(WHITE, BLACK);
+			blit_stringf(LEFT_LABEL_X, 336, "TITLEID    ");
+			blit_stringf(RIGHT_LABEL_X, 336, "%9s", titleid);
+
 		}
 		sceDisplayWaitVblankStart();
 	}
