@@ -17,7 +17,8 @@ Press SELECT button for 2 seconds after launching game from Vitamin or MaiDumpTo
 You can download both `amphetamin.suprx` and `game.txt` from release page.
 
 # Config
-For advanced setting, create a file named `config.txt` and put it into `ux0:/data/amphetamin`, the file content must be
+For advanced setting, create a file named `config.txt` and put it into `ux0:/data/amphetamin`. You should use common editor but not Windows default notepad.exe(You can use wordpad.exe, Notepad++, EditPlus, Sublime Text, Atom or more, Which use `\n` for linebreak).
+The file content must be:
 
 ```ini
 freq_accurate=0
@@ -27,7 +28,7 @@ show_advanced=0
 `freq_accurate`: 1 to enable accurate frequence(5MHz per select)  
 `show_advanced`: 1 to enable advaned setting(currently has XBAR clock setting)
 
-You can also download that `config.txt` from release page.
+You can also download that `config.txt` from release page. You can also transfer it to PSV and use VitaShell to edit it.
 
 # Changelog
 + v3.2
